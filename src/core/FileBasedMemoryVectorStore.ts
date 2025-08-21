@@ -1,4 +1,5 @@
 /** @notice Library imports */
+import os from "os";
 import path from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { MemoryVectorStore } from "langchain/vectorstores/memory";
@@ -25,9 +26,9 @@ export class FileBasedMemoryVectorStore extends MemoryVectorStore {
     super.addVectors(vectors, documents);
 
     /// Updating the embeddings with new data
-    const cwd = process.cwd();
+    const homeDir = os.homedir();
     const filePath = path.join(
-      cwd,
+      homeDir,
       ROOT_FILE_PATH,
       ConfigManager.EMBEDDINGS_FILE
     );
@@ -35,9 +36,9 @@ export class FileBasedMemoryVectorStore extends MemoryVectorStore {
   }
 
   private _loadEmbeddings(): MemoryVectorStore["memoryVectors"] {
-    const cwd = process.cwd();
+    const homeDir = os.homedir();
     const filePath = path.join(
-      cwd,
+      homeDir,
       ROOT_FILE_PATH,
       ConfigManager.EMBEDDINGS_FILE
     );

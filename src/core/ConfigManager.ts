@@ -6,6 +6,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "fs";
+import os from "os";
 import path from "path";
 /// Local imports
 import { ROOT_FILE_PATH } from "@/configs/constants";
@@ -26,31 +27,31 @@ export class ConfigManager {
   public static setUpConfigs(configs: Config) {
     if (!this.isConfigPresent()) {
       /// Updating the embeddings with new data
-      const cwd = process.cwd();
-      const filePath = path.join(cwd, ROOT_FILE_PATH, this.CONFIGS_FILE);
+      const homeDir = os.homedir();
+      const filePath = path.join(homeDir, ROOT_FILE_PATH, this.CONFIGS_FILE);
       writeFileSync(filePath, JSON.stringify(configs, null, "\t"));
     }
   }
 
   public static getConfigs(): Config {
     /// Getting the current configs
-    const cwd = process.cwd();
-    const filePath = path.join(cwd, ROOT_FILE_PATH, this.CONFIGS_FILE);
+    const homeDir = os.homedir();
+    const filePath = path.join(homeDir, ROOT_FILE_PATH, this.CONFIGS_FILE);
     return JSON.parse(readFileSync(filePath).toString());
   }
 
   public static isConfigPresent(): boolean {
-    const cwd = process.cwd();
-    const filePath = path.join(cwd, ROOT_FILE_PATH, this.CONFIGS_FILE);
+    const homeDir = os.homedir();
+    const filePath = path.join(homeDir, ROOT_FILE_PATH, this.CONFIGS_FILE);
     return existsSync(filePath);
   }
 
   public static makeConfigDirIfNotPresent() {
-    const cwd = process.cwd();
-    const dirs = readdirSync(cwd);
+    const homeDir = os.homedir();
+    const dirs = readdirSync(homeDir);
 
     if (!dirs.includes(ROOT_FILE_PATH)) {
-      const filePath = path.join(cwd, ROOT_FILE_PATH);
+      const filePath = path.join(homeDir, ROOT_FILE_PATH);
       mkdirSync(filePath);
     }
   }
