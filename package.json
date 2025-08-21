@@ -14,5 +14,10 @@
   },
   "scripts": {
     "prepare": "husky"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.3.72",
+    "@langchain/ollama": "^0.2.3",
+    "langchain": "^0.3.31"
   }
 }
