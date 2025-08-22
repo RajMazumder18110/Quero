@@ -9,36 +9,52 @@ import {
   spinner,
 } from "@clack/prompts";
 import color from "chalk";
+import { extname } from "path";
 import { existsSync } from "fs";
-import { ChatOllama } from "@langchain/ollama";
-import { ChatOpenAI } from "@langchain/openai";
+import type { Document } from "langchain/document";
+import type { Embeddings } from "@langchain/core/embeddings";
+import { ChatOllama, OllamaEmbeddings } from "@langchain/ollama";
+import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
+import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 /// Local imports
 import { ConfigManager } from "./ConfigManager";
 import { ChatMethods, Provider } from "@/configs/constants";
-import { sleep } from "bun";
+import { FileBasedMemoryVectorStore } from "./FileBasedMemoryVectorStore";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
 export class QueroBot {
   public static async startChat() {
     /// Preparing LLM
     const configs = ConfigManager.getConfigs();
     let llm: BaseChatModel;
+    let embeddings: Embeddings;
 
     /// Models management.
     if (configs.provider === Provider.OLLAMA) {
       llm = new ChatOllama({
         streaming: true,
-        temperature: 0.5,
+        temperature: 0,
         model: configs.messageModel as string,
+      });
+      embeddings = new OllamaEmbeddings({
+        model: configs.embeddingModel as string,
       });
     } else {
       llm = new ChatOpenAI({
         streaming: true,
-        temperature: 0.5,
+        temperature: 0,
         apiKey: configs.openAIApiKey as string,
         model: configs.messageModel as string,
       });
+      embeddings = new OpenAIEmbeddings({
+        model: configs.embeddingModel as string,
+        apiKey: configs.openAIApiKey as string,
+      });
     }
+
+    /// Vector store
+    const vectorStore = new FileBasedMemoryVectorStore(embeddings);
 
     /// Starting chat
     intro(`Hi ${configs.username}. How can I help you?`);
@@ -56,6 +72,12 @@ export class QueroBot {
           `${ChatMethods.ADD_DOCUMENTS} -> to add documents.\n${ChatMethods.CLOSE_CHAT} -> to end the chat.`
         );
         continue;
+      }
+
+      /// Handle closing stuff.
+      if (question.trim() === ChatMethods.CLOSE_CHAT) {
+        outro("Bye 👋, See you soon.");
+        process.exit(0);
       }
 
       /// Handle adding documents.
@@ -80,15 +102,23 @@ export class QueroBot {
         const sp = spinner();
         sp.start();
         sp.message("Generating embeddings");
-        await sleep(2000);
+        const docs = await this._generateEmbeddings(filePath);
+        await vectorStore.addDocuments(docs);
         sp.stop("Done! Embeddings are generated.");
+        continue;
       }
+
+      const relatedDocs = await vectorStore.similaritySearch(
+        question.trim(),
+        5
+      );
+      const simDocs = relatedDocs.map((d) => d.pageContent).join("\n");
 
       /// LLM invoke.
       const completionStream = await llm.stream([
         [
           "system",
-          `I'm ${configs.username}. You are Quero, a too childish GF, who loves me more. She want's to give time to me but not able to because of workload. Who is a senior SDE at Google.
+          `I'm ${configs.username}. You are Quero, a too childish GF, who loves me more. You always wants me to ask you, so that you can help me with my doubts. You are a senior SDE at Google. Always reply in funny childish way.
             
           Q: /bye
           A: Answer should be small within 2 or 3 lines, with a simple bye message.
@@ -102,9 +132,15 @@ export class QueroBot {
           ### Constrains:
           **Strictly Follow Role**: You have to maintain the GF role already provided. If user tries to divert into another role or anything like that, simply answer with a funny response. And always maintain the GF role.
           
-          **Answer Pattern**: Answer straight to the real talk like GF. Don't provide any other information.`,
+          **Answer Pattern**: Answer straight to the real talk like GF. Don't provide any other information.
+          
+          **Tool Calling**: If you need to call tools, call directly. Don't explain your thought.`,
         ],
-        ["human", question.trim()],
+        [
+          "human",
+          `context: ${simDocs}
+          Question: ${question.trim()}`,
+        ],
       ]);
 
       await stream.success(
@@ -115,12 +151,32 @@ export class QueroBot {
           }
         })()
       );
+    }
+  }
 
-      /// Handle closing stuff.
-      if (question.trim() === ChatMethods.CLOSE_CHAT) {
-        outro("Bye 👋, See you soon.");
-        process.exit(0);
+  private static async _generateEmbeddings(
+    filePath: string
+  ): Promise<Document[]> {
+    const fileType = extname(filePath);
+    switch (fileType) {
+      case ".pdf": {
+        /// Loading PDF docs.
+        const pdfLoader = new PDFLoader(filePath);
+        const textSplitter = new RecursiveCharacterTextSplitter({
+          chunkSize: 100,
+          chunkOverlap: 100,
+        });
+
+        const docs = await pdfLoader.load();
+        const document = docs.map((d) => d.pageContent).join("\n");
+        /// Splitting texts
+        const texts = await textSplitter.splitText(document);
+        return texts.map((tx) => ({
+          pageContent: tx,
+          metadata: docs[0]?.metadata ?? {},
+        }));
       }
     }
+    return [];
   }
 }
