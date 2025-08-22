@@ -1,9 +1,10 @@
 /** @notice Library imports */
-import { OllamaEmbeddings } from "@langchain/ollama";
-import { FileBasedMemoryVectorStore } from "@/core/FileBasedMemoryVectorStore";
-import { ConfigManager } from "./core/ConfigManager";
+import { QueroBot } from "@/core/QueroBot";
+import { ConfigManager } from "@/core/ConfigManager";
 
+console.clear();
 ConfigManager.initialize();
+QueroBot.startChat();
 // const embeddings = new OllamaEmbeddings({
 //   model: "nomic-embed-text",
 //   baseUrl: "http://192.168.0.166:11434",

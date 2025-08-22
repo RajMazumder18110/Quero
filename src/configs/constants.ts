@@ -5,6 +5,12 @@ export const enum Provider {
   OPENAI = "openai",
 }
 
+export enum ChatMethods {
+  CLOSE_CHAT = "/bye",
+  ADD_DOCUMENTS = "/add",
+  ADDED_DOCUMENTS = "/added-documents",
+}
+
 export const enum EmbeddingModels {
   /// Ollama
   NOMIC_EMBED_TEXT = "nomic-embed-text",
