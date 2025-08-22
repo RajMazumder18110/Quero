@@ -8,20 +8,24 @@ import {
   outro,
   spinner,
 } from "@clack/prompts";
+import z from "zod";
 import color from "chalk";
 import { extname } from "path";
 import { existsSync } from "fs";
+import { tool } from "@langchain/core/tools";
 import type { Document } from "langchain/document";
+import { MemorySaver } from "@langchain/langgraph";
 import type { Embeddings } from "@langchain/core/embeddings";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOllama, OllamaEmbeddings } from "@langchain/ollama";
 import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 /// Local imports
 import { ConfigManager } from "./ConfigManager";
 import { ChatMethods, Provider } from "@/configs/constants";
 import { FileBasedMemoryVectorStore } from "./FileBasedMemoryVectorStore";
-import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
 export class QueroBot {
   public static async startChat() {
@@ -53,11 +57,67 @@ export class QueroBot {
       });
     }
 
+    const schema = z.object({
+      query: z.string(),
+    });
+    const findInVectorStore = tool(
+      async (data) => {
+        console.log("calling...");
+        const params = data as z.infer<typeof schema>;
+        const docs = await vectorStore.similaritySearch(params.query, 3);
+        return docs.map((d) => d.pageContent).join("\n");
+      },
+      {
+        name: "searchForPersonalData",
+        description:
+          "Returns the related personal/company related data based on query you provided.",
+        schema,
+      }
+    );
+
     /// Vector store
     const vectorStore = new FileBasedMemoryVectorStore(embeddings);
 
+    const checkPointer = new MemorySaver();
+    const agent = createReactAgent({
+      llm,
+      tools: [findInVectorStore],
+      checkpointSaver: checkPointer,
+    });
+
+    const startCompletion = await agent.invoke(
+      {
+        messages: [
+          {
+            role: "system",
+            content: `I'm ${configs.username}. You are Quero, a too childish GF, who loves me more. You always wants me to ask you, so that you can help me with my doubts. You are a senior SDE at Google. Always reply in funny childish way.
+            
+              Q: /bye
+              A: Answer should be small within 2 or 3 lines, with a simple bye message.
+              Thinking: User are saying good bye to you. Only send bye message.
+
+              Q:/add
+              A:You have to respond with a simple successfully remember message at max 2-3 lines. And ask user if user wants to know anything?
+              Thinking: User already provided you some docs like pdf, txt. You got those pdf and txt files provided by user.
+              You already looked them already as you are free at that time.
+              
+              ### Constrains:
+              **Strictly Follow Role**: You have to maintain the GF role already provided. If user tries to divert into another role or anything like that, simply answer with a funny response. And always maintain the GF role.
+              **Answer Pattern**: Answer straight to the real talk like GF. Don't provide any other information.
+              **Tool Calling**: If you need to call tools, call directly. Don't explain your thought.`,
+          },
+          {
+            role: "user",
+            content: "Hi",
+          },
+        ],
+      },
+      { configurable: { thread_id: "1" } }
+    );
+
     /// Starting chat
-    intro(`Hi ${configs.username}. How can I help you?`);
+    const res = startCompletion.messages.at(-1)?.content ?? "";
+    intro(res as string);
     note(
       `${ChatMethods.ADD_DOCUMENTS} -> to add documents.\n${ChatMethods.CLOSE_CHAT} -> to end the chat.`
     );
@@ -108,47 +168,24 @@ export class QueroBot {
         continue;
       }
 
-      const relatedDocs = await vectorStore.similaritySearch(
-        question.trim(),
-        5
-      );
-      const simDocs = relatedDocs.map((d) => d.pageContent).join("\n");
-
       /// LLM invoke.
-      const completionStream = await llm.stream([
-        [
-          "system",
-          `I'm ${configs.username}. You are Quero, a too childish GF, who loves me more. You always wants me to ask you, so that you can help me with my doubts. You are a senior SDE at Google. Always reply in funny childish way.
-            
-          Q: /bye
-          A: Answer should be small within 2 or 3 lines, with a simple bye message.
-          Thinking: User are saying good bye to you. Only send bye message.
-
-          Q:/add
-          A:You have to respond with a simple successfully remember message at max 2-3 lines. And ask user if user wants to know anything?
-          Thinking: User already provided you some docs like pdf, txt. You got those pdf and txt files provided by user.
-          You already looked them already as you are free at that time.
-          
-          ### Constrains:
-          **Strictly Follow Role**: You have to maintain the GF role already provided. If user tries to divert into another role or anything like that, simply answer with a funny response. And always maintain the GF role.
-          
-          **Answer Pattern**: Answer straight to the real talk like GF. Don't provide any other information.
-          
-          **Tool Calling**: If you need to call tools, call directly. Don't explain your thought.`,
-        ],
-        [
-          "human",
-          `context: ${simDocs}
-          Question: ${question.trim()}`,
-        ],
-      ]);
+      const completion = await agent.invoke(
+        {
+          messages: [
+            {
+              role: "user",
+              content: question.trim(),
+            },
+          ],
+        },
+        { configurable: { thread_id: "1" } }
+      );
 
       await stream.success(
-        (async function* () {
+        (function* () {
           yield color.bold.greenBright(`(Quero) >>> \n`);
-          for await (const chunk of completionStream) {
-            yield chunk.content as string;
-          }
+          const messages = completion.messages.at(-1)?.content ?? "";
+          yield messages as string;
         })()
       );
     }
